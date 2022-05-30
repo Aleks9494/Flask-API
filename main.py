@@ -24,11 +24,13 @@ lists = [
 def get_lists():
     return jsonify(lists)
 
+
 @app.route('/api/lists', methods=['POST'])
 def add_list():
     new_task = request.json
     lists.append(new_task)
     return jsonify(lists)
+
 
 @app.route('/api/lists/<int:list_id>', methods=['PUT'])
 def update_list(list_id):
@@ -39,6 +41,7 @@ def update_list(list_id):
     elem.update(new_task)
     return jsonify(elem)
 
+
 @app.route('/api/lists/<int:list_id>', methods=['DELETE'])
 def delete_list(list_id):
     elem = next((x for x in enumerate(lists) if x[1]['id'] == list_id), None)
@@ -48,7 +51,8 @@ def delete_list(list_id):
     if not elem:
         return {'message': f'No tasks with id = {list_id}'}, 400
     lists.pop(elem[0])                          # так как elem - кортеж
-    return {'message': f' Task with id {list_id} deleted'}
+    return {'message': f'Task with id {list_id} deleted'}
+
 
 if __name__ == '__main__':
     app.run(debug=True)
