@@ -1,42 +1,43 @@
-from run import client
-
+from app import client
+from flask import json
+from app.models import User
 
 def test_get():
-    result = client.get('api/lists')
 
+    result = client.get('api/users')
+    print (result.json)
     assert result.status_code == 200
-    assert len(result.json) == 2
-    assert result.json[0]['id'] == 1
+    assert len(result.json) == len(User.query.all())
 
 
 def test_post():
     data = {
-        'id': 3,
-        'title': 'Number 3',
-        'description': 'Test #3'
+        'id': 5,
+        'username': 'Petya',
+        'email': 'e@mail.ru',
+        'user_status': 'Fifth to Go!!!!!'
     }
-    result = client.post('api/lists', json=data)   # в result все данные из списка словарей (из функции add_list() в return весь список)
+    result = client.post('api/users', json=data)
 
     assert result.status_code == 200
-    assert len(result.json) == 3
-    assert result.json[2]['id'] == 3
+    assert result.json['username'] == data['username']
+    assert result.json['username'] == User.query.filter_by(id=data['id']).first().username
 
 
 def test_put():
     data = {
-        'title': 'Number 222222',
-        'description': 'Test #3 update by test'
+        'user_status': 'First to Go!!!!!!',
     }
-    result = client.put('api/lists/3', json=data)   # в result только 1 запись из списка словарей (из функции update_list в return измененная запись)
+    result = client.put('api/users/1', json=data)
 
     assert result.status_code == 200
-    assert result.json['title'] == 'Number 222222'
-    assert result.json['description'] == 'Test #3 update by test'
+    assert result.json['user_status'] == data['user_status']
+    assert result.json['user_status'] == User.query.get(1).user_status
 
 
 def test_delete():
 
-    result = client.delete('api/lists/3')   # в result сообщение ((из функции del_list в return message)
+    result = client.delete('api/users/5')
 
     assert result.status_code == 200
-    assert result.json['message'] == 'Task with id 3 deleted'
+    assert result.json['message'] == 'User with id 5 deleted'

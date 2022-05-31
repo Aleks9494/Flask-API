@@ -13,6 +13,9 @@ class User (db.Model):
     comments = db.relationship('Comment', backref='user_comments', lazy=True, cascade="all, delete-orphan")
     posts = db.relationship('Post', backref='author', lazy=True)
 
+    def as_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
 
 class Post(db.Model):
     __tablename__ = "posts"
@@ -26,6 +29,9 @@ class Post(db.Model):
 
     comments = db.relationship('Comment', backref='article', lazy=True, cascade="all, delete-orphan")
 
+    def as_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
 
 class Comment(db.Model):
     __tablename__ = "comments"
@@ -37,4 +43,7 @@ class Comment(db.Model):
 
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    def as_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
