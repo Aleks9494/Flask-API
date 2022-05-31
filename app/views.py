@@ -1,10 +1,5 @@
-from flask import Flask, jsonify, request
-
-app = Flask(__name__)
-
-client = app.test_client()
-
-app.config['JSON_AS_ASCII'] = False         # чтобы нормально отображались символы
+from app import app
+from flask import jsonify, request
 
 lists = [
         {
@@ -53,6 +48,3 @@ def delete_list(list_id):
     lists.pop(elem[0])                          # так как elem - кортеж
     return {'message': f'Task with id {list_id} deleted'}
 
-
-if __name__ == '__main__':
-    app.run(debug=True)

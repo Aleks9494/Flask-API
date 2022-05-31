@@ -1,4 +1,4 @@
-from main import client
+from run import client
 
 
 def test_get():
