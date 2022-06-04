@@ -1,5 +1,4 @@
 from app import client
-from flask import json
 from app.models import User
 
 def test_get():
