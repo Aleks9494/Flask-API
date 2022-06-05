@@ -1,40 +1,49 @@
 from sqlalchemy.exc import DBAPIError
 from app import app, db
-from flask import jsonify, request, json
-from app.models import User, Post
+from app.models import User, Post, Comment
 from passlib.hash import bcrypt
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.schemas import PostSchema, UserSchema, AuthSchema, CommentSchema, UpdateUserSchema, UpdatePostSchema
+from flask_apispec import marshal_with, use_kwargs
+from flask import jsonify
 
 
+# Регистрация
 @app.route('/api/register', methods=['POST'])
-def register():
-    user = User(**json.loads(request.data.decode("Windows-1251")))
+@use_kwargs(UserSchema)  # декоратор для десериализации входящих параметров, аналог schema.load
+@marshal_with(AuthSchema)  # декоратор для сериализации объекта например БД, аналог schema.dump
+def register(**kwargs):
+    user = User(**kwargs)
     try:
         db.session.add(user)
         db.session.commit()
+        token = user.get_token()
+        return {'access_token': token}
     except DBAPIError:
         db.session.rollback()
-
-    token = user.get_token()
-    return {'access_token': token}
+        return {'message': f"Email {kwargs.get('email')} is busy "}
 
 
+# авторизация
 @app.route('/api/login', methods=['POST'])
-def login():
-    params = json.loads(request.data.decode("Windows-1251"))
-    user = User.query.filter_by(email=params.get('email')).first()
+@use_kwargs(UserSchema(only=('email', 'password')))  # декоратор для десериализации входящих параметров
+@marshal_with(AuthSchema)
+def login(**kwargs):
+    user = User.query.filter_by(email=kwargs.get('email')).first()
     if not user:
-        return {'message': f"No user with email {params.get('email')}"}
+        return {'message': f"No user with email {kwargs.get('email')}"}
     if user:
-        if not bcrypt.verify(params.get('password'), user.password):  # сравниваем пароль из запроса с БД
+        if not bcrypt.verify(kwargs.get('password'), user.password):  # сравниваем пароль из запроса с БД
             return {'message': f"Invalid password"}
         else:
             token = user.get_token()
             return {'access_token': token}
 
 
+# Просмотр инфомарции о себе
 @app.route('/api/users/<int:user_id>', methods=['GET'], endpoint='show_user')
 @jwt_required()
+@marshal_with(UserSchema)
 def show_user(user_id):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
     пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
@@ -42,49 +51,38 @@ def show_user(user_id):
     user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
     if not user:
         return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    dict_res = user.as_dict()
-    list_com, list_post = [], []
-    for com in user.comments:
-        dict_com = dict()
-        dict_com = com.as_dict()
-        dict_com['Title of the Post'] = com.article.title  # Название поста, к которому этот комментарий
-        dict_com['Username author of the Post'] = com.article.author.username  # Имя автора поста, к которому этот комментарий
-        del dict_com['user_id']
-        del dict_com['id']
-        del dict_com['username']
-        list_com.append(dict_com)
-    for post in user.posts:
-        dict_post = dict()
-        dict_post = post.as_dict()
-        del dict_post['user_id']
-        del dict_post['id']
-        list_post.append(dict_post)
-    dict_res['posts'] = list_post
-    dict_res['comments'] = list_com
 
-    return jsonify(dict_res)
+    return user   # возвращаем при помощи @marshal_with(UserSchema) сериализованный в json объект user
 
 
+# Изменение информации о себе
 @app.route('/api/users/<int:user_id>', methods=['PUT'], endpoint='update_user')
 @jwt_required()
-def update_user(user_id):
+@marshal_with(UserSchema)
+@use_kwargs(UpdateUserSchema)   # убрал обязательные поля, чтобы можно было менять что-то одно
+def update_user(user_id, **kwargs):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
         пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
+    """аргументы kwargs - это те данные, котоыре приходят в post запросе, use_kwargs нужен для 
+        десериализации данных json из запроса  """
     user_id_token = get_jwt_identity()
     user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
-    new_task = json.loads(request.data.decode("Windows-1251"))
     if not user:
         return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    for key, value in new_task.items():
-        setattr(user, key, value)     # устанавливаем по ключу значение в user
-    db.session.commit()
-    dict_res = user.as_dict()   # выводим измененного юзера
+    try:
+        for key, value in kwargs.items():
+            setattr(user, key, value)  # устанавливаем по ключу значение в user
+        db.session.commit()
+    except DBAPIError:
+        db.session.rollback()
 
-    return jsonify(dict_res)
+    return user
 
 
+# Удаление своего пользователя
 @app.route('/api/users/<int:user_id>', methods=['DELETE'], endpoint='delete_user')
 @jwt_required()
+@marshal_with(UserSchema)
 def delete_user(user_id):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
         пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
@@ -101,80 +99,136 @@ def delete_user(user_id):
     return {'message': f'User with id {user_id} deleted'}
 
 
+# Просмотр всех постов
+@app.route('/api/users/<int:user_id>/allposts', methods=['GET'], endpoint='show_all_posts')
+@jwt_required()
+# @marshal_with(PostSchema(many=True))       # декоратор для сериализации данных,  список json объектов
+def show_all_posts(user_id):
+    user_id_token = get_jwt_identity()
+    if user_id_token != user_id:
+        return {'message': f'Access denied, this id not yours = {user_id}'}, 400
+    posts = Post.query.all()
+    schema = PostSchema(many=True)
+    # c декоратором #@marshal_with(PostSchema(many=True)) возвращается
+    # "title": "<built-in method title of str object at 0x0000025FAD58ECB0>"
+    if not posts:
+        return {'message': 'There are not any posts'}
+
+    return jsonify(schema.dump(posts))
+    # return posts
+
+
+# Просмотр любого поста
+@app.route('/api/users/<int:user_id>/allposts/<int:post_id>', methods=['GET'], endpoint='show_post')
+@jwt_required()
+@marshal_with(PostSchema)
+def show_post(user_id, post_id):
+    user_id_token = get_jwt_identity()
+    if user_id_token != user_id:
+        return {'message': f'Access denied, this id not yours = {user_id}'}, 400
+    post = Post.query.filter_by(id=post_id).first()
+    if not post:
+        return {'message': f'No post with id = {post_id}'}, 400
+
+    return post
+
+
+# Комментирование не своего поста
+@app.route('/api/users/<int:user_id>/allposts/<int:post_id>', methods=['POST'], endpoint='comment_post')
+@jwt_required()
+@marshal_with(PostSchema)
+@use_kwargs(CommentSchema)
+def comment_post(user_id, post_id, **kwargs):
+    user_id_token = get_jwt_identity()
+    if user_id_token != user_id:
+        return {'message': f'Access denied, this id not yours = {user_id}'}, 400
+    post = Post.query.filter_by(id=post_id).first()
+    if not post:
+        return {'message': f'No post with id = {post_id}'}, 400
+    elif post.user_id == user_id_token:
+        return {'message': 'This is your post!!'}, 400
+    new_comment = Comment(user_id=user_id, post_id=post_id, **kwargs)
+    try:
+        db.session.add(new_comment)
+        db.session.commit()
+    except DBAPIError:
+        db.session.rollback()
+
+    return post
+
+
+# Просмотр своих постов
 @app.route('/api/users/<int:user_id>/posts', methods=['GET'], endpoint='user_posts')
 @jwt_required()
+# @marshal_with(PostSchema(many=True))       # декоратор для сериализации данных,  список json объектов
 def user_posts(user_id):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
         пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
     user_id_token = get_jwt_identity()
-    user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
-    if not user:
+    posts = Post.query.filter(Post.user_id == user_id_token, Post.user_id == user_id).all()
+    schema = PostSchema(many=True)
+    # c декоратором #@marshal_with(PostSchema(many=True)) возвращается
+    # "title": "<built-in method title of str object at 0x0000025FAD58ECB0>"
+    if not posts:
         return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    list_posts = list()
-    for post in user.posts:
-        dict_post = post.as_dict()
-        del dict_post['user_id']
-        del dict_post['id']
-        list_com = list()
-        for com in post.comments:
-            dict_com = dict()
-            dict_com = com.as_dict()
-            del dict_com['post_id']
-            del dict_com['user_id']
-            del dict_com['id']
-            list_com.append(dict_com)
-        dict_post['comments'] = list_com
-        list_posts.append(dict_post)
-    if not list_posts:
-        return {'message': f'User with id {user_id} has not any posts'}
 
-    return jsonify(list_posts)
+    return jsonify(schema.dump(posts))
+    # return posts
 
 
+# Добавление своего поста
 @app.route('/api/users/<int:user_id>/posts', methods=['POST'], endpoint='user_add_post')
 @jwt_required()
-def user_add_post(user_id):
+@use_kwargs(PostSchema)  # декоратор для десериализации входящих параметров
+@marshal_with(PostSchema)  # декоратор для сериализации данных,  один json объект
+def user_add_post(user_id, **kwargs):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
             пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
+    """аргументы kwargs - это те данные, котоыре приходят в post запросе"""
     user_id_token = get_jwt_identity()
     user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
     if not user:
         return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    new_post = Post(user_id=user.id, **json.loads(request.data.decode("Windows-1251")))
+    new_post = Post(user_id=user.id, **kwargs)
     try:
         db.session.add(new_post)
         db.session.commit()
+        return new_post
     except DBAPIError:
         db.session.rollback()
-    finally:
-        dict_res = new_post.as_dict()
-
-    return jsonify(dict_res)
+        return {'message': f'Title {kwargs.get("title")} already exist'}
 
 
+# Редактирование своего поста
 @app.route('/api/users/<int:user_id>/posts/<int:post_id>', methods=['PUT'], endpoint='user_update_post')
 @jwt_required()
-def user_update_post(user_id, post_id):
+@use_kwargs(UpdatePostSchema)  # декоратор для десериализации входящих параметров
+@marshal_with(PostSchema)  # декоратор для сериализации данных,  один json объект
+def user_update_post(user_id, post_id, **kwargs):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
             пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
+    """аргументы kwargs - это те данные, котоыре приходят в post запросе"""
     user_id_token = get_jwt_identity()
     user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
     if not user:
         return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    post = Post.query.filter(Post.id == post_id, User.id == user_id_token, User.id == user_id).first()
-    new_task = json.loads(request.data.decode("Windows-1251"))
+    post = Post.query.filter(Post.id == post_id, Post.user_id == user_id_token, Post.user_id == user_id).first()
     if not post:
         return {'message': f'No post with id = {post_id}'}, 400
-    for key, value in new_task.items():
-        setattr(post, key, value)
-    db.session.commit()
-    dict_res = post.as_dict()
+    try:
+        for key, value in kwargs.items():
+            setattr(post, key, value)  # устанавливаем по ключу значение в user
+        db.session.commit()
+        return post
+    except DBAPIError:
+        db.session.rollback()
+        return {'message': f'Title {kwargs.get("title")} already exist'}
 
-    return jsonify(dict_res)
 
-
+# Удаление своего поста
 @app.route('/api/users/<int:user_id>/posts/<int:post_id>', methods=['DELETE'], endpoint='user_delete_post')
 @jwt_required()
+@marshal_with(PostSchema)
 def user_delete_post(user_id, post_id):
     """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
                 пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
@@ -182,7 +236,7 @@ def user_delete_post(user_id, post_id):
     user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
     if not user:
         return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    post = Post.query.filter(Post.id == post_id, User.id == user_id_token, User.id == user_id).first()
+    post = Post.query.filter(Post.id == post_id, Post.user_id == user_id_token, Post.user_id == user_id).first()
     if not post:
         return {'message': f'No post with id = {post_id}'}, 400
     try:
@@ -194,31 +248,11 @@ def user_delete_post(user_id, post_id):
     return {'message': f'Post with id {post_id} deleted'}
 
 
-@app.route('/api/users/<int:user_id>/comments', methods=['GET'], endpoint='user_comments')
-@jwt_required()
-def user_comments(user_id):
-    """Получаем id из пользователя, прошедшего идентификацию для того, чтобы другие идентифицированые
-                пользователи не смогли ввести свой id в строку браузера и увидеть данные по id,который они ввели"""
-    user_id_token = get_jwt_identity()
-    user = User.query.filter(User.id == user_id_token, User.id == user_id).first()
-    if not user:
-        return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    list_comments = list()
-    for comment in user.comments:
-        dict_comments = comment.as_dict()
-        dict_comments['Title of the Post'] = comment.article.title  # Название поста, к которому этот комментарий
-        dict_comments[
-            'Username author of the Post'] = comment.article.author.username    # Имя автора поста, к которому этот комментарий
-        del dict_comments['post_id']
-        del dict_comments['user_id']
-        del dict_comments['id']
-        list_comments.append(dict_comments)
-    if not list_comments:
-        return {'message': f'User with id {user_id} has not any comment'}
-
-    return jsonify(list_comments)
-
-
-
-
-
+@app.errorhandler(422)  # обработка исключений схем marshmallow (422), если обязательного поля нет в данных в запросе
+def handle_error(err):
+    headers = err.data.get('headers', None)
+    messages = err.data.get('messages', ['Invalid request'])
+    if headers:
+        return jsonify({'message': messages}), 400, headers
+    else:
+        return jsonify({'message': messages}), 400

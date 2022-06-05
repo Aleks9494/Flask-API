@@ -35,7 +35,7 @@ class Post(db.Model):
     __tablename__ = "posts"
 
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), unique=False, nullable=False)
+    title = db.Column(db.String(200), unique=True, nullable=False)
     content = db.Column(db.Text(), nullable=False)
     date_posted = db.Column(db.DateTime, nullable=True, default=datetime.now)
 
@@ -53,7 +53,7 @@ class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=False, nullable=False)
     body = db.Column(db.Text(), nullable=False)
-    date_posted = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    date_posted = db.Column(db.DateTime, nullable=True, default=datetime.now)
 
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
