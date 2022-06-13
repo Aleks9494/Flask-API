@@ -18,12 +18,13 @@ docs = FlaskApiSpec()     # документации для swagger
 docs.init_app(app)
 
 from app.views import *
+
 docs.register(register)
 docs.register(login)
 docs.register(show_user)
 docs.register(update_user)
 docs.register(delete_user)
-docs.register(show_all_posts)
+docs.register(ShowPosts, endpoint='show_posts')
 docs.register(show_post)
 docs.register(comment_post)
 docs.register(user_posts)

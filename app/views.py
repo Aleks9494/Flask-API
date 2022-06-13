@@ -6,7 +6,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.schemas import PostSchema, UserSchema, AuthSchema, CommentSchema, UpdateUserSchema, UpdatePostSchema
 from flask_apispec import marshal_with, use_kwargs
 from flask import jsonify
+from flask_apispec import MethodResource
 
+
+# @app.route('/api/user', methods=['GET'])
+# @marshal_with(UserSchema)
+# def show():
+#     user = User.query.all()
+#     return user
 
 # Регистрация
 @app.route('/api/register', methods=['POST'])
@@ -32,6 +39,7 @@ def login(**kwargs):
     user = User.query.filter_by(email=kwargs.get('email')).first()
     if not user:
         return {'message': f"No user with email {kwargs.get('email')}"}
+        # raise Exception(f"No user with email {kwargs.get('email')}")
     if user:
         if not bcrypt.verify(kwargs.get('password'), user.password):  # сравниваем пароль из запроса с БД
             return {'message': f"Invalid password"}
@@ -99,23 +107,21 @@ def delete_user(user_id):
     return {'message': f'User with id {user_id} deleted'}
 
 
-# Просмотр всех постов
-@app.route('/api/users/<int:user_id>/allposts', methods=['GET'], endpoint='show_all_posts')
-@jwt_required()
-# @marshal_with(PostSchema(many=True))       # декоратор для сериализации данных,  список json объектов
-def show_all_posts(user_id):
-    user_id_token = get_jwt_identity()
-    if user_id_token != user_id:
-        return {'message': f'Access denied, this id not yours = {user_id}'}, 400
-    posts = Post.query.all()
-    schema = PostSchema(many=True)
-    # c декоратором #@marshal_with(PostSchema(many=True)) возвращается
-    # "title": "<built-in method title of str object at 0x0000025FAD58ECB0>"
-    if not posts:
-        return {'message': 'There are not any posts'}
-
-    return jsonify(schema.dump(posts))
-    # return posts
+# посмотреть все посты на сайте
+class ShowPosts(MethodResource):
+    @jwt_required()
+    # @marshal_with(PostSchema(many=True))  # декоратор для сериализации данных,  список json объектов
+    def get(self, user_id):  # при MethodResourse(Pluggable Views для API названия методов get, post, put, delete)
+        user_id_token = get_jwt_identity()
+        if user_id_token != user_id:
+            return {'message': f'Access denied, this id not yours = {user_id}'}, 400
+        posts = Post.query.all()
+        if not posts:
+            return {'message': 'There are not any posts'}
+        schema = PostSchema(many=True)
+        # c декоратором #@marshal_with(PostSchema(many=True)) возвращается
+        # "title": "<built-in method title of str object at 0x0000025FAD58ECB0>"
+        return jsonify(schema.dump(posts))
 
 
 # Просмотр любого поста
@@ -193,10 +199,11 @@ def user_add_post(user_id, **kwargs):
     try:
         db.session.add(new_post)
         db.session.commit()
-        return new_post
     except DBAPIError:
         db.session.rollback()
         return {'message': f'Title {kwargs.get("title")} already exist'}
+
+    return new_post
 
 
 # Редактирование своего поста
@@ -219,10 +226,11 @@ def user_update_post(user_id, post_id, **kwargs):
         for key, value in kwargs.items():
             setattr(post, key, value)  # устанавливаем по ключу значение в user
         db.session.commit()
-        return post
     except DBAPIError:
         db.session.rollback()
         return {'message': f'Title {kwargs.get("title")} already exist'}
+
+    return post
 
 
 # Удаление своего поста
@@ -256,3 +264,6 @@ def handle_error(err):
         return jsonify({'message': messages}), 400, headers
     else:
         return jsonify({'message': messages}), 400
+
+
+app.add_url_rule('/api/users/<int:user_id>/allposts', view_func=ShowPosts.as_view('show_posts'), methods=['GET'])

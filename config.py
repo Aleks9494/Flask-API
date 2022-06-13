@@ -1,5 +1,7 @@
-SQLALCHEMY_DATABASE_URI = "postgresql+psycopg2://postgres:12345@localhost:5432/API"
+import os
+
+SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URI')
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 DEBUG = True
-SECRET_KEY = '4598ujrjwoiip[]dmk//?Kojkdiou732940imkf;d'
+SECRET_KEY = os.environ.get('SECRET_KEY')
 JSON_AS_ASCII = False    # чтобы нормально отображались символы
